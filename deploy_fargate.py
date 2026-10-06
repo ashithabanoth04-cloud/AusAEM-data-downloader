@@ -500,6 +500,8 @@ def run_fargate_task(
 
 def main():
 
+    global S3_BUCKET
+
     parser = argparse.ArgumentParser(
         description=(
             "Deploy AusAEM-WA processing "
@@ -522,6 +524,10 @@ def main():
     args = parser.parse_args()
 
     bucket = args.bucket
+
+    # Make sure the bucket supplied through --bucket
+    # is the same value used in the ECS task definition.
+    S3_BUCKET = bucket
 
     if not bucket:
 
