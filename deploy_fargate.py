@@ -258,8 +258,8 @@ def register_task_definition(
 
     environment = [
         {
-            "name": "S3_BUCKET",
-            "value": S3_BUCKET
+        "name": "S3_BUCKET",
+        "value": "spectropy-processed-data"
         },
         {
             "name": "S3_PREFIX",
