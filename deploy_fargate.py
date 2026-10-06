@@ -42,7 +42,7 @@ S3_BUCKET = os.getenv("S3_BUCKET", "")
 
 S3_PREFIX = os.getenv(
     "S3_PREFIX",
-    "processed_data/AusAEM_WA_EM_Data"
+    "AusAEM_WA_EM_Data"
 )
 
 CONTAINER_NAME = "ausaem-worker-container"
