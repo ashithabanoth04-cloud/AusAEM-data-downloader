@@ -1,19 +1,26 @@
-# Use an official lightweight Python image
-FROM python:3.9-slim
+# Multi-architecture base image for AWS ECS Fargate & Cloud Tasks
+FROM python:3.12-slim
 
-# Set the working directory
+# Prevent Python from writing .pyc files and enable unbuffered output for AWS CloudWatch
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    TEMP_DIR=/tmp
+
 WORKDIR /app
 
-# Copy requirements
-COPY requirements.txt .
+# Install system certificates and required network utilities
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies
+RUN pip install --no-cache-dir boto3
+RUN pip install --no-cache-dir python-dotenv
 
-# Copy application files
+# Copy application source code
 COPY ausem.py .
-COPY worker.py .
-COPY s3_uploader.py .
 
-# Start the worker
-CMD ["python", "worker.py"]
+# Default execution
+ENTRYPOINT ["python", "-u"]
+CMD ["ausem.py"]
