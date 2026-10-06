@@ -40,12 +40,15 @@ import os
 import sys
 import time
 import argparse
-from typing import Dict, Any
 
 # Ensure current directory is in sys.path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(
+    0,
+    os.path.dirname(os.path.abspath(__file__))
+)
 
-from ausem import main as run_ausem
+# Import the main AusAEM processing pipeline
+from ausaem import main as run_ausaem
 
 
 def parse_arguments():
@@ -140,36 +143,36 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def build_ausem_arguments(args):
+def build_ausaem_arguments(args):
     """
     Convert worker arguments into the command-line style arguments
-    expected by ausem.py.
+    expected by ausaem.py.
     """
 
-    ausem_args = []
+    ausaem_args = []
 
     if args.survey:
-        ausem_args.extend([
+        ausaem_args.extend([
             "--survey",
             args.survey,
         ])
 
     if args.output_dir:
-        ausem_args.extend([
+        ausaem_args.extend([
             "--output-dir",
             args.output_dir,
         ])
 
     if args.temp_dir:
-        ausem_args.extend([
+        ausaem_args.extend([
             "--temp-dir",
             args.temp_dir,
         ])
 
     if args.force:
-        ausem_args.append("--force")
+        ausaem_args.append("--force")
 
-    return ausem_args
+    return ausaem_args
 
 
 def main():
@@ -187,35 +190,44 @@ def main():
     print("=" * 75, flush=True)
 
     print("\n[WORKER CONFIGURATION]", flush=True)
+
     print(
-        f"  Survey:          "
+        f"  Survey:             "
         f"{args.survey if args.survey else 'ALL SURVEYS'}",
         flush=True
     )
+
     print(
-        f"  Output Directory: {args.output_dir}",
+        f"  Output Directory:   {args.output_dir}",
         flush=True
     )
+
     print(
         f"  Temporary Directory: {args.temp_dir}",
         flush=True
     )
+
     print(
-        f"  S3 Bucket:       {args.bucket}",
-        flush=True
-    )
-    print(
-        f"  S3 Prefix:       {args.s3_prefix}",
-        flush=True
-    )
-    print(
-        f"  Force Processing: {args.force}",
+        f"  S3 Bucket:          {args.bucket}",
         flush=True
     )
 
-    ausem_args = build_ausem_arguments(args)
+    print(
+        f"  S3 Prefix:          {args.s3_prefix}",
+        flush=True
+    )
 
-    print("\n[STARTING AusAEM-WA PROCESSING]", flush=True)
+    print(
+        f"  Force Processing:   {args.force}",
+        flush=True
+    )
+
+    ausaem_args = build_ausaem_arguments(args)
+
+    print(
+        "\n[STARTING AusAEM-WA PROCESSING]",
+        flush=True
+    )
 
     t0 = time.time()
 
@@ -223,13 +235,13 @@ def main():
     original_argv = sys.argv
 
     try:
-        # Run ausem.py using the worker-generated arguments.
+        # Run ausaem.py using the worker-generated arguments.
         sys.argv = [
-            "ausem.py",
-            *ausem_args,
+            "ausaem.py",
+            *ausaem_args,
         ]
 
-        run_ausem()
+        run_ausaem()
 
     finally:
         # Restore original command-line arguments.
@@ -237,12 +249,20 @@ def main():
 
     elapsed = time.time() - t0
 
-    print("\n" + "=" * 75, flush=True)
+    print(
+        "\n" + "=" * 75,
+        flush=True
+    )
+
     print(
         "              AusAEM-WA PROCESSING SUMMARY",
         flush=True
     )
-    print("=" * 75, flush=True)
+
+    print(
+        "=" * 75,
+        flush=True
+    )
 
     if args.survey:
         print(
@@ -266,7 +286,10 @@ def main():
         flush=True
     )
 
-    print("=" * 75 + "\n", flush=True)
+    print(
+        "=" * 75 + "\n",
+        flush=True
+    )
 
 
 if __name__ == "__main__":
