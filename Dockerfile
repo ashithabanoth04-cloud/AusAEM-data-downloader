@@ -19,8 +19,9 @@ RUN pip install --no-cache-dir boto3
 RUN pip install --no-cache-dir python-dotenv
 
 # Copy application source code
-COPY ausem.py .
+COPY ausaem.py .
+COPY worker.py .
 
 # Default execution
 ENTRYPOINT ["python", "-u"]
-CMD ["ausem.py"]
+CMD ["worker.py"]
