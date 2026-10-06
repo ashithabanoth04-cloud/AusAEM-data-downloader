@@ -1,44 +1,42 @@
-# AusAEM WA Data Pipeline
+# AusAEM-WA Airborne Electromagnetic Data Processing Pipeline (AWS S3 & ECS Fargate)
 
-This project downloads and processes official AusAEM airborne electromagnetic data for Western Australia and uploads the final datasets to AWS S3.
+A scalable Python tool and automated AWS ECS Fargate pipeline to download, process, and organize official **AusAEM-WA airborne electromagnetic (AEM) survey data** from Western Australian government and Geoscience Australia sources.
 
-## Survey Areas
+---
 
-- Earaheedy
-- Eastern Goldfields
-- East Yilgarn–Albany Fraser
-- Murchison
-- Northern WA
-- South West–Albany
-- Western Resources Corridor
+## 🌟 Key Features
 
-## Data Processing
+- **Automated AusAEM-WA Data Download**: Downloads official airborne electromagnetic survey packages automatically from configured government data sources.
 
-The project:
+- **Dual Execution Modes**:
+  - **AWS ECS Fargate Cloud Execution**: Runs the processing pipeline inside a Docker container on AWS ECS Fargate.
+  - **Local Machine Execution**: Run the complete processing workflow directly from a local terminal using Python.
 
-1. Downloads the official AusAEM data packages.
-2. Extracts the required EM data.
-3. Uses the `.dfn` file to determine the correct field names and structure.
-4. Converts the EM `.dat` data into CSV format.
-5. Converts the `.dfn` and `.des` files into readable text files.
-6. Uploads the final datasets to AWS S3.
+- **ASEG-GDF2 Data Processing**: Automatically identifies and processes `.dat`, `.dfn`, and `.des` files from AusAEM survey packages.
 
-## Final Output
+- **Streaming `.DAT` to CSV Conversion**: Processes large airborne EM datasets line-by-line without loading the complete dataset into memory.
 
-The output contains:
+- **Dynamic Schema Extraction**: Reads `.dfn` field definitions and expands multi-channel array fields into individual CSV columns.
 
-- `.csv` — processed EM data
-- `.dfn.txt` — field/channel definitions
-- `.des.txt` — data description
+- **Multi-Block Survey Support**: Combines multiple `.dat` blocks belonging to the same survey into a unified CSV dataset.
 
-## AWS Upload
+- **Fault-Tolerant Processing**: If one survey encounters an error, the pipeline records the failure and continues processing the remaining surveys.
 
-The `s3_uploader.py` script uploads the generated `AusAEM_WA_EM_Data` folder to an AWS S3 bucket.
+- **Smart Skip**: Detects previously completed survey outputs and preserves them without unnecessary re-downloading or processing.
 
-AWS credentials are not stored in the repository.
+- **Clean Output Structure**: Stores the final CSV, readable DFN metadata, and DES metadata for each survey area.
 
-## Configuration
+---
 
-Create a local `.env` file using `.env.example` as a template.
+## 📁 Supported Survey Areas
 
-Do not commit the real `.env` file or AWS credentials to GitHub.
+The pipeline is configured for the following AusAEM-WA survey areas:
+
+```text
+Earaheedy
+Eastern_Goldfields
+East_Yilgarn_Albany_Fraser
+Murchison
+South_West_Albany
+Western_Resources_Corridor
+Northern_WA
