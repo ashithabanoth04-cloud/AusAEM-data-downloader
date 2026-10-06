@@ -1,4 +1,23 @@
+# Environment variables & secrets
 .env
+
+# Python bytecode & cache
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Local data & temporary files
+data/
+AusAEM_WA_EM_Data/
+temp_work/
+*.zip
+*.csv
 *.log
+logs/
+
+# IDE & OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
