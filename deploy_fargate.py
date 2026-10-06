@@ -7,7 +7,8 @@
 # 2. Pushes image to Amazon Elastic Container Registry (ECR).
 # 3. Registers ECS Fargate Task Definition.
 # 4. Launches the task on AWS ECS Fargate.
-# 5. Exits cleanly while the task continues running in AWS Cloud.
+# 5. Uses the ECS IAM Task Role for AWS/S3 access.
+# 6. Exits cleanly while the task continues running in AWS Cloud.
 #
 # =============================================================================
 
@@ -17,47 +18,97 @@ import time
 import base64
 import subprocess
 import argparse
+
 import boto3
 from botocore.exceptions import ClientError
 
-# Automatically load environment variables from .env
+
+# =============================================================================
+# LOAD ENVIRONMENT VARIABLES
+# =============================================================================
+
 try:
     from dotenv import load_dotenv
 
     load_dotenv()
 
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    load_dotenv(os.path.join(script_dir, ".env"))
+    script_dir = os.path.dirname(
+        os.path.abspath(__file__)
+    )
+
+    load_dotenv(
+        os.path.join(script_dir, ".env")
+    )
 
 except ImportError:
     pass
 
 
-AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "ap-south-1")
-ECR_REPO_NAME = os.getenv("ECR_REPO_NAME", "ausaem-wa-worker")
-ECS_CLUSTER_NAME = os.getenv("ECS_CLUSTER_NAME", "ausaem-fargate-cluster")
-ECS_TASK_FAMILY = os.getenv("ECS_TASK_FAMILY", "ausaem-downloader-task")
-S3_BUCKET = os.getenv("S3_BUCKET", "ausaem-wa-data")
+# =============================================================================
+# AWS CONFIGURATION
+# =============================================================================
+
+AWS_REGION = os.getenv(
+    "AWS_DEFAULT_REGION",
+    "ap-south-1"
+)
+
+ECR_REPO_NAME = os.getenv(
+    "ECR_REPO_NAME",
+    "ausaem-wa-worker"
+)
+
+ECS_CLUSTER_NAME = os.getenv(
+    "ECS_CLUSTER_NAME",
+    "ausaem-fargate-cluster"
+)
+
+ECS_TASK_FAMILY = os.getenv(
+    "ECS_TASK_FAMILY",
+    "ausaem-downloader-task"
+)
+
+S3_BUCKET = os.getenv(
+    "S3_BUCKET",
+    "ausaem-wa-data"
+)
+
+RAW_PREFIX = os.getenv(
+    "RAW_PREFIX",
+    "raw"
+)
 
 CONTAINER_NAME = "ausaem-worker-container"
 
+
+# =============================================================================
+# AWS ACCOUNT
+# =============================================================================
 
 def get_account_id(sts_client):
     return sts_client.get_caller_identity()["Account"]
 
 
+# =============================================================================
+# ECR
+# =============================================================================
+
 def ensure_ecr_repo(ecr_client, repo_name):
+
     try:
         res = ecr_client.describe_repositories(
             repositoryNames=[repo_name]
         )
+
         return res["repositories"][0]["repositoryUri"]
 
     except ClientError as e:
+
         if e.response["Error"]["Code"] == "RepositoryNotFoundException":
+
             print(
-                f"[*] Creating ECR Repository '{repo_name}' "
-                f"in {AWS_REGION}...",
+                f"[*] Creating ECR Repository "
+                f"'{repo_name}' in {AWS_REGION}...",
                 flush=True
             )
 
@@ -70,7 +121,11 @@ def ensure_ecr_repo(ecr_client, repo_name):
         raise
 
 
-def get_ecr_login_command(ecr_client, registry_uri):
+def get_ecr_login_command(
+    ecr_client,
+    registry_uri
+):
+
     token = ecr_client.get_authorization_token()
 
     auth_data = token["authorizationData"][0]
@@ -80,16 +135,20 @@ def get_ecr_login_command(ecr_client, registry_uri):
     ).decode("utf-8")
 
     user, password = auth_token.split(":")
+
     endpoint = auth_data["proxyEndpoint"]
 
     return user, password, endpoint
 
 
-def build_and_push_docker(ecr_uri, tag="latest"):
+def build_and_push_docker(
+    ecr_uri,
+    tag="latest"
+):
 
     print(
-        "\n[1/4] Building Docker image for Linux/AMD64 "
-        "(ECS Fargate compatible)...",
+        "\n[1/4] Building Docker image for "
+        "Linux/AMD64 (ECS Fargate compatible)...",
         flush=True
     )
 
@@ -109,10 +168,14 @@ def build_and_push_docker(ecr_uri, tag="latest"):
         script_dir
     ]
 
-    subprocess.run(build_cmd, check=True)
+    subprocess.run(
+        build_cmd,
+        check=True
+    )
 
     print(
-        "\n[2/4] Logging in to AWS ECR and pushing image...",
+        "\n[2/4] Logging in to AWS ECR "
+        "and pushing image...",
         flush=True
     )
 
@@ -146,6 +209,7 @@ def build_and_push_docker(ecr_uri, tag="latest"):
     )
 
     if login_proc.returncode != 0:
+
         raise RuntimeError(
             f"Docker login to ECR failed: {stderr}"
         )
@@ -173,7 +237,8 @@ def build_and_push_docker(ecr_uri, tag="latest"):
 
             print(
                 f"[*] Uploading to ECR "
-                f"(Attempt {push_attempt}/{max_push_attempts})...",
+                f"(Attempt {push_attempt}/"
+                f"{max_push_attempts})...",
                 flush=True
             )
 
@@ -210,12 +275,21 @@ def build_and_push_docker(ecr_uri, tag="latest"):
                 )
 
 
+# =============================================================================
+# IAM
+# =============================================================================
+
 def get_iam_execution_role_arn(account_id):
+
     return (
         f"arn:aws:iam::{account_id}:role/"
         f"ecsTaskExecutionRole"
     )
 
+
+# =============================================================================
+# CLOUDWATCH
+# =============================================================================
 
 def ensure_cloudwatch_log_group(
     logs_client,
@@ -228,9 +302,26 @@ def ensure_cloudwatch_log_group(
             logGroupName=log_group_name
         )
 
+        print(
+            f"[+] CloudWatch log group created: "
+            f"{log_group_name}",
+            flush=True
+        )
+
+    except ClientError as e:
+
+        if e.response["Error"]["Code"] != (
+            "ResourceAlreadyExistsException"
+        ):
+            raise
+
     except Exception:
         pass
 
+
+# =============================================================================
+# ECS TASK DEFINITION
+# =============================================================================
 
 def register_task_definition(
     ecs_client,
@@ -242,14 +333,18 @@ def register_task_definition(
 ):
 
     print(
-        f"\n[3/4] Registering ECS Fargate Task Definition "
+        f"\n[3/4] Registering ECS Fargate "
+        f"Task Definition "
         f"(CPU: {cpu}, RAM: {memory}MB)...",
         flush=True
     )
 
-    session = boto3.Session()
-    creds = session.get_credentials()
-
+    # Environment variables that are safe to pass
+    # into the ECS container.
+    #
+    # IMPORTANT:
+    # AWS access keys are NOT passed here.
+    # The ECS task IAM role provides AWS permissions.
     env_vars = [
         {
             "name": "S3_BUCKET",
@@ -257,17 +352,7 @@ def register_task_definition(
         },
         {
             "name": "RAW_PREFIX",
-            "value": os.getenv(
-                "RAW_PREFIX",
-                "raw"
-            )
-        },
-        {
-            "name": "PROCESSED_PREFIX",
-            "value": os.getenv(
-                "PROCESSED_PREFIX",
-                "processed"
-            )
+            "value": RAW_PREFIX
         },
         {
             "name": "AWS_DEFAULT_REGION",
@@ -278,32 +363,6 @@ def register_task_definition(
             "value": "1"
         }
     ]
-
-    if creds:
-
-        frozen = creds.get_frozen_credentials()
-
-        env_vars.extend(
-            [
-                {
-                    "name": "AWS_ACCESS_KEY_ID",
-                    "value": frozen.access_key
-                },
-                {
-                    "name": "AWS_SECRET_ACCESS_KEY",
-                    "value": frozen.secret_key
-                }
-            ]
-        )
-
-        if frozen.token:
-
-            env_vars.append(
-                {
-                    "name": "AWS_SESSION_TOKEN",
-                    "value": frozen.token
-                }
-            )
 
     container_def = {
         "name": CONTAINER_NAME,
@@ -328,8 +387,12 @@ def register_task_definition(
         executionRoleArn=execution_role_arn,
         taskRoleArn=execution_role_arn,
         networkMode="awsvpc",
-        containerDefinitions=[container_def],
-        requiresCompatibilities=["FARGATE"],
+        containerDefinitions=[
+            container_def
+        ],
+        requiresCompatibilities=[
+            "FARGATE"
+        ],
         cpu=str(cpu),
         memory=str(memory)
     )
@@ -346,6 +409,10 @@ def register_task_definition(
 
     return task_def_arn
 
+
+# =============================================================================
+# ECS CLUSTER
+# =============================================================================
 
 def ensure_ecs_cluster(
     ecs_client,
@@ -383,6 +450,10 @@ def ensure_ecs_cluster(
     return res["cluster"]["clusterArn"]
 
 
+# =============================================================================
+# VPC / SUBNET / SECURITY GROUP
+# =============================================================================
+
 def get_default_vpc_subnets_and_security_group(
     ec2_client
 ):
@@ -397,9 +468,11 @@ def get_default_vpc_subnets_and_security_group(
     )["Vpcs"]
 
     if not vpcs:
-        vpcs = ec2_client.describe_vpcs()["Vpcs"]
+        vpcs = ec2_client.describe_vpcs(
+        )["Vpcs"]
 
     if not vpcs:
+
         raise RuntimeError(
             "No VPC found in current AWS region."
         )
@@ -421,11 +494,12 @@ def get_default_vpc_subnets_and_security_group(
     ]
 
     if not subnet_ids:
+
         raise RuntimeError(
             f"No subnets found in VPC {vpc_id}."
         )
 
-    # Get or create security group
+    # Get existing AusAEM security group.
     sec_groups = ec2_client.describe_security_groups(
         Filters=[
             {
@@ -476,6 +550,10 @@ def get_default_vpc_subnets_and_security_group(
     return subnet_ids, [sg_id]
 
 
+# =============================================================================
+# RUN FARGATE TASK
+# =============================================================================
+
 def run_fargate_task(
     ecs_client,
     cluster_name,
@@ -488,7 +566,8 @@ def run_fargate_task(
 ):
 
     print(
-        "\n[4/4] Launching Task on AWS ECS Fargate...",
+        "\n[4/4] Launching Task on "
+        "AWS ECS Fargate...",
         flush=True
     )
 
@@ -519,7 +598,10 @@ def run_fargate_task(
         overrides=overrides
     )
 
-    tasks = res.get("tasks", [])
+    tasks = res.get(
+        "tasks",
+        []
+    )
 
     if not tasks:
 
@@ -529,57 +611,83 @@ def run_fargate_task(
         )
 
         raise RuntimeError(
-            f"Failed to launch ECS task: {failures}"
+            f"Failed to launch ECS task: "
+            f"{failures}"
         )
 
     task_arn = tasks[0]["taskArn"]
+
     task_id = task_arn.split("/")[-1]
 
     print(
-        "===========================================================================",
+        "\n" + "=" * 75,
         flush=True
     )
 
     print(
-        "   AWS ECS FARGATE TASK LAUNCHED SUCCESSFULLY!",
+        "   AWS ECS FARGATE TASK "
+        "LAUNCHED SUCCESSFULLY!",
         flush=True
     )
 
     print(
-        "===========================================================================",
-        flush=True
-    )
-
-    print(f"  Task ARN:        {task_arn}")
-    print(f"  Task ID:         {task_id}")
-    print(f"  Cluster:         {cluster_name}")
-    print(f"  Target Survey:   {survey or 'ALL'}")
-    print(f"  S3 Destination:  s3://{s3_bucket}/")
-    print(
-        "---------------------------------------------------------------------------",
+        "=" * 75,
         flush=True
     )
 
     print(
-        "  [OK] The task is now running in AWS Cloud."
+        f"  Task ARN:        {task_arn}"
     )
 
     print(
-        "  [OK] YOU CAN SAFELY SHUT DOWN YOUR COMPUTER NOW!"
+        f"  Task ID:         {task_id}"
     )
 
     print(
-        f"  [LOGS] View live logs in AWS CloudWatch: "
-        f"/ecs/{ECS_TASK_FAMILY}"
+        f"  Cluster:         {cluster_name}"
     )
 
     print(
-        "===========================================================================",
+        f"  Target Survey:   "
+        f"{survey or 'ALL'}"
+    )
+
+    print(
+        f"  S3 Destination:  "
+        f"s3://{s3_bucket}/{RAW_PREFIX}/"
+    )
+
+    print(
+        "-" * 75,
+        flush=True
+    )
+
+    print(
+        "  [OK] The task is now running "
+        "in AWS Cloud."
+    )
+
+    print(
+        "  [OK] YOU CAN SAFELY SHUT DOWN "
+        "YOUR COMPUTER NOW."
+    )
+
+    print(
+        f"  [LOGS] View live logs in AWS "
+        f"CloudWatch: /ecs/{ECS_TASK_FAMILY}"
+    )
+
+    print(
+        "=" * 75,
         flush=True
     )
 
     return task_arn, task_id
 
+
+# =============================================================================
+# MONITOR FARGATE TASK
+# =============================================================================
 
 def monitor_fargate_task(
     ecs_client,
@@ -589,8 +697,8 @@ def monitor_fargate_task(
 ):
 
     print(
-        f"\n[*] Monitoring AWS ECS Fargate task lifecycle "
-        f"({task_id})...\n",
+        f"\n[*] Monitoring AWS ECS Fargate "
+        f"task lifecycle ({task_id})...\n",
         flush=True
     )
 
@@ -655,16 +763,19 @@ def monitor_fargate_task(
                     if exit_code == 0:
 
                         print(
-                            "\n[+] ECS Fargate Task "
-                            "completed successfully!"
+                            "\n[+] ECS Fargate "
+                            "Task completed successfully!",
+                            flush=True
                         )
 
                     else:
 
                         print(
-                            f"\n[!] ECS Fargate Task stopped "
-                            f"with exit code {exit_code}. "
-                            f"Reason: {reason}"
+                            f"\n[!] ECS Fargate Task "
+                            f"stopped with exit code "
+                            f"{exit_code}. "
+                            f"Reason: {reason}",
+                            flush=True
                         )
 
                     return exit_code
@@ -675,11 +786,16 @@ def monitor_fargate_task(
         time.sleep(5)
 
     print(
-        "\n[!] Monitoring timeout reached."
+        "\n[!] Monitoring timeout reached.",
+        flush=True
     )
 
     return None
 
+
+# =============================================================================
+# MAIN
+# =============================================================================
 
 def main():
 
@@ -721,15 +837,15 @@ def main():
     parser.add_argument(
         "--bucket",
         default=S3_BUCKET,
-        help=f"Target S3 bucket (default: {S3_BUCKET})"
+        help=(
+            f"Target S3 bucket "
+            f"(default: {S3_BUCKET})"
+        )
     )
 
     parser.add_argument(
         "--s3-prefix",
-        default=os.getenv(
-            "RAW_PREFIX",
-            "raw"
-        ),
+        default=RAW_PREFIX,
         help="S3 prefix"
     )
 
@@ -753,6 +869,11 @@ def main():
 
     args = parser.parse_args()
 
+    # Use the AWS credentials available on the
+    # deployment machine only.
+    #
+    # These credentials are NOT passed into the
+    # ECS container.
     sts_client = boto3.client(
         "sts",
         region_name=AWS_REGION
@@ -788,6 +909,10 @@ def main():
         flush=True
     )
 
+    # -------------------------------------------------------------------------
+    # ECR
+    # -------------------------------------------------------------------------
+
     ecr_uri = ensure_ecr_repo(
         ecr_client,
         ECR_REPO_NAME
@@ -806,15 +931,24 @@ def main():
 
         print(
             "[*] Skipping Docker build. "
-            f"Using existing image in ECR: {image_uri}",
+            f"Using existing image in ECR: "
+            f"{image_uri}",
             flush=True
         )
+
+    # -------------------------------------------------------------------------
+    # IAM
+    # -------------------------------------------------------------------------
 
     execution_role_arn = (
         get_iam_execution_role_arn(
             account_id
         )
     )
+
+    # -------------------------------------------------------------------------
+    # CLOUDWATCH
+    # -------------------------------------------------------------------------
 
     log_group_name = (
         f"/ecs/{ECS_TASK_FAMILY}"
@@ -825,6 +959,10 @@ def main():
         log_group_name
     )
 
+    # -------------------------------------------------------------------------
+    # ECS TASK DEFINITION
+    # -------------------------------------------------------------------------
+
     task_def_arn = register_task_definition(
         ecs_client,
         execution_role_arn,
@@ -834,10 +972,18 @@ def main():
         cpu="2048"
     )
 
+    # -------------------------------------------------------------------------
+    # ECS CLUSTER
+    # -------------------------------------------------------------------------
+
     cluster_arn = ensure_ecs_cluster(
         ecs_client,
         ECS_CLUSTER_NAME
     )
+
+    # -------------------------------------------------------------------------
+    # NETWORKING
+    # -------------------------------------------------------------------------
 
     subnet_ids, sg_ids = (
         get_default_vpc_subnets_and_security_group(
@@ -845,12 +991,17 @@ def main():
         )
     )
 
-    # Build container command
+    # -------------------------------------------------------------------------
+    # CONTAINER COMMAND
+    # -------------------------------------------------------------------------
+
     cmd_args = [
-        "ausem.py"
+        "python",
+        "ausaem.py"
     ]
 
     if args.survey:
+
         cmd_args.extend(
             [
                 "--survey",
@@ -859,6 +1010,7 @@ def main():
         )
 
     if args.output_dir:
+
         cmd_args.extend(
             [
                 "--output-dir",
@@ -867,6 +1019,7 @@ def main():
         )
 
     if args.temp_dir:
+
         cmd_args.extend(
             [
                 "--temp-dir",
@@ -875,7 +1028,14 @@ def main():
         )
 
     if args.force:
-        cmd_args.append("--force")
+
+        cmd_args.append(
+            "--force"
+        )
+
+    # -------------------------------------------------------------------------
+    # LAUNCH FARGATE
+    # -------------------------------------------------------------------------
 
     task_arn, task_id = run_fargate_task(
         ecs_client,
@@ -888,6 +1048,10 @@ def main():
         s3_bucket=args.bucket
     )
 
+    # -------------------------------------------------------------------------
+    # OPTIONAL MONITORING
+    # -------------------------------------------------------------------------
+
     if args.monitor:
 
         monitor_fargate_task(
@@ -896,6 +1060,10 @@ def main():
             task_id
         )
 
+
+# =============================================================================
+# ENTRY POINT
+# =============================================================================
 
 if __name__ == "__main__":
     main()
